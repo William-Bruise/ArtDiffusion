@@ -90,7 +90,10 @@ class Trainer:
                 if self.step % self.cfg['train']['save_every'] == 0:
                     save_checkpoint({'model': self.model.state_dict(), 'opt': self.opt.state_dict(), 'step': self.step, 'cfg': self.cfg}, str(self.out / 'ckpts' / f'{self.step}.pt'))
                 if self.step % self.cfg['train']['sample_every'] == 0:
-                    smp = sample_grid(self.model, self.device, 1, (h, w), self.cfg['sampling']['num_steps'])
+                    self.model.eval()
+                    with torch.no_grad():
+                        smp = sample_grid(self.model, self.device, 1, (h, w), self.cfg['sampling']['num_steps'])
+                    self.model.train()
                     save_image((smp.clamp(-1, 1) + 1) / 2, self.out / 'samples' / f'{self.step}.png')
                 if self.step >= max_steps:
                     break
