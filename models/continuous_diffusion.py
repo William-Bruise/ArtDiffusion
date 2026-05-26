@@ -2,7 +2,6 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 def fourier_encode(coords: torch.Tensor, n_freq: int = 32) -> torch.Tensor:
@@ -30,21 +29,34 @@ class ContinuousFieldDiffusion(nn.Module):
     def __init__(self, time_embed_dim=128, global_latent_dim=256, coord_hidden_dim=256, coord_fourier_dim=64, num_layers=6, dropout=0.1):
         super().__init__()
         self.coord_fourier_dim = coord_fourier_dim
+        self.global_latent_dim = global_latent_dim
         coord_dim = coord_fourier_dim * 4
-        self.global_encoder = nn.Sequential(
+        self.global_backbone = nn.Sequential(
             nn.Conv2d(3, 64, 4, 2, 1), nn.SiLU(),
             nn.Conv2d(64, 128, 4, 2, 1), nn.SiLU(),
             nn.Conv2d(128, global_latent_dim, 4, 2, 1), nn.SiLU(),
             nn.AdaptiveAvgPool2d(1),
         )
+        self.global_mu = nn.Linear(global_latent_dim, global_latent_dim)
+        self.global_logvar = nn.Linear(global_latent_dim, global_latent_dim)
+
         self.t_embed = nn.Sequential(nn.Linear(1, time_embed_dim), nn.SiLU(), nn.Linear(time_embed_dim, time_embed_dim))
         self.coord_mlp = CoordMLP(coord_dim + global_latent_dim + time_embed_dim + 3, coord_hidden_dim, num_layers, 3, dropout)
 
-    def encode_global(self, x_img: torch.Tensor) -> torch.Tensor:
-        return self.global_encoder(x_img).flatten(1)
+    def encode_global_stats(self, x_img: torch.Tensor):
+        h = self.global_backbone(x_img).flatten(1)
+        return self.global_mu(h), self.global_logvar(h)
+
+    def sample_global_latent(self, mu: torch.Tensor, logvar: torch.Tensor):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def kl_global_prior(self, mu: torch.Tensor, logvar: torch.Tensor):
+        # KL(q(z|x)||N(0,I))
+        return 0.5 * torch.mean(torch.sum(torch.exp(logvar) + mu * mu - 1.0 - logvar, dim=1))
 
     def forward(self, noisy_rgb: torch.Tensor, coords: torch.Tensor, t: torch.Tensor, global_context: torch.Tensor) -> torch.Tensor:
-        # noisy_rgb: [B,N,3], coords: [B,N,2], t:[B]
         c = fourier_encode(coords, self.coord_fourier_dim)
         te = self.t_embed(t[:, None]).unsqueeze(1).expand(-1, coords.shape[1], -1)
         g = global_context.unsqueeze(1).expand(-1, coords.shape[1], -1)
