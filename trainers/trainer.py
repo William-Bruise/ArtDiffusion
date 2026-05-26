@@ -19,6 +19,8 @@ class Trainer:
         self.cfg = cfg
         set_seed(cfg['experiment']['seed'])
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.use_amp = bool(cfg['train'].get('use_amp', True) and self.device == 'cuda')
+        self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
         self.out = Path(cfg['experiment']['out_dir'])
         ensure_dir(str(self.out / 'ckpts'))
         ensure_dir(str(self.out / 'samples'))
@@ -32,6 +34,11 @@ class Trainer:
         self.model = ContinuousFieldDiffusion(**cfg['model']).to(self.device)
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=cfg['train']['lr'], weight_decay=cfg['train']['weight_decay'])
         self.step = 0
+        if self.device == 'cuda':
+            gpu_name = torch.cuda.get_device_name(torch.cuda.current_device())
+            print(f'[Trainer] device=cuda gpu="{gpu_name}" amp={self.use_amp}')
+        else:
+            print('[Trainer] device=cpu (CUDA not available in current PyTorch/runtime)')
 
     def maybe_resume(self):
         path = self.cfg['train']['resume']
@@ -66,29 +73,32 @@ class Trainer:
 
                 mu, logvar = self.model.encode_global_stats(img)
                 g = self.model.sample_global_latent(mu, logvar)
-                pred_f = self.model(xt_f, coords_f, t, g)
-                pred_c = self.model(xt_c, coords_c, t, g)
+                with torch.amp.autocast('cuda', enabled=self.use_amp):
+                    pred_f = self.model(xt_f, coords_f, t, g)
+                    pred_c = self.model(xt_c, coords_c, t, g)
 
-                loss_main_f = F.mse_loss(pred_f, eps_f)
-                loss_main_c = F.mse_loss(pred_c, eps_c)
-                # subset consistency: same noise realization restricted to coarse subset
-                eps_f_on_c = eps_f[:, perm[:n_c], :]
-                xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
-                pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g)
-                # consistency should be anchored to a target noise, not only prediction-vs-prediction
-                loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
-                loss_kl = self.model.kl_global_prior(mu, logvar)
-                loss = (
-                    loss_main_f
-                    + c.get('coarse_weight', 0.5) * loss_main_c
-                    + c['consistency_weight'] * loss_cons
-                    + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
-                )
+                    loss_main_f = F.mse_loss(pred_f, eps_f)
+                    loss_main_c = F.mse_loss(pred_c, eps_c)
+                    # subset consistency: same noise realization restricted to coarse subset
+                    eps_f_on_c = eps_f[:, perm[:n_c], :]
+                    xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
+                    pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g)
+                    # consistency should be anchored to a target noise, not only prediction-vs-prediction
+                    loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
+                    loss_kl = self.model.kl_global_prior(mu, logvar)
+                    loss = (
+                        loss_main_f
+                        + c.get('coarse_weight', 0.5) * loss_main_c
+                        + c['consistency_weight'] * loss_cons
+                        + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
+                    )
 
                 self.opt.zero_grad()
-                loss.backward()
+                self.scaler.scale(loss).backward()
+                self.scaler.unscale_(self.opt)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg['train']['grad_clip'])
-                self.opt.step()
+                self.scaler.step(self.opt)
+                self.scaler.update()
 
                 self.step += 1
                 pbar.update(1)

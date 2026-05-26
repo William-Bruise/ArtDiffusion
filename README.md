@@ -73,6 +73,16 @@ python -m compileall scripts/sample.py samplers/ddim_sampler.py models/continuou
 - 建议先用 `--steps 100` 采样再看质量，50 步对当前小模型常偏噪。
 - 关注训练日志中的 `fine/coarse/cons` 是否同步下降；若 `cons` 不降，优先减小 `coordinates.consistency_weight` 到 `0.1`。
 
+### 5) GPU 是否生效（你问的这个）
+训练启动后会打印设备信息：
+- `device=cuda gpu=... amp=True` 代表已经使用 GPU。
+- `device=cpu` 代表当前环境没有可用 CUDA（常见原因：PyTorch 装的是 CPU 版本，或驱动/CUDA 不匹配）。
+
+可用以下命令快速自检：
+```bash
+python -c "import torch; print('cuda_available=', torch.cuda.is_available()); print('torch_cuda=', torch.version.cuda); print('device_count=', torch.cuda.device_count())"
+```
+
 > 若自动下载失败，请按报错信息手动放置图片到 `data/<dataset>/images/` 后重跑准备脚本。
 
 
