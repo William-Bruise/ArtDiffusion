@@ -1,6 +1,11 @@
+import argparse
+
+from _bootstrap import bootstrap_repo_root
+
+bootstrap_repo_root()
+
 from trainers.trainer import Trainer
 from utils import load_config
-import argparse
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()

@@ -2,6 +2,10 @@ import argparse
 import torch
 from torchvision.utils import save_image
 
+from _bootstrap import bootstrap_repo_root
+
+bootstrap_repo_root()
+
 from models.continuous_diffusion import ContinuousFieldDiffusion
 from samplers.ddim_sampler import sample_grid
 from utils import load_checkpoint

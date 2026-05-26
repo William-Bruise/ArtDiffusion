@@ -1,5 +1,9 @@
 import argparse
 
+from _bootstrap import bootstrap_repo_root
+
+bootstrap_repo_root()
+
 from datasets.prepare import prepare_dataset
 
 

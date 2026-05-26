@@ -3,6 +3,10 @@ import torch
 from torchvision.io import read_image
 from torchvision.utils import save_image
 
+from _bootstrap import bootstrap_repo_root
+
+bootstrap_repo_root()
+
 from inverse_problems.operators import DenoiseOperator, InpaintingOperator, SuperResolutionOperator
 from inverse_problems.solver import posterior_sample
 from models.continuous_diffusion import ContinuousFieldDiffusion
