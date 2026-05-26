@@ -69,14 +69,21 @@ class Trainer:
                 pred_f = self.model(xt_f, coords_f, t, g)
                 pred_c = self.model(xt_c, coords_c, t, g)
 
-                loss_main = F.mse_loss(pred_f, eps_f)
+                loss_main_f = F.mse_loss(pred_f, eps_f)
+                loss_main_c = F.mse_loss(pred_c, eps_c)
                 # subset consistency: same noise realization restricted to coarse subset
                 eps_f_on_c = eps_f[:, perm[:n_c], :]
                 xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
                 pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g)
-                loss_cons = F.mse_loss(pred_c, pred_c_from_f)
+                # consistency should be anchored to a target noise, not only prediction-vs-prediction
+                loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
                 loss_kl = self.model.kl_global_prior(mu, logvar)
-                loss = loss_main + c['consistency_weight'] * loss_cons + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
+                loss = (
+                    loss_main_f
+                    + c.get('coarse_weight', 0.5) * loss_main_c
+                    + c['consistency_weight'] * loss_cons
+                    + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
+                )
 
                 self.opt.zero_grad()
                 loss.backward()
@@ -86,7 +93,9 @@ class Trainer:
                 self.step += 1
                 pbar.update(1)
                 if self.step % self.cfg['train']['log_every'] == 0:
-                    pbar.set_description(f'loss={loss.item():.4f} main={loss_main.item():.4f} kl={loss_kl.item():.4f}')
+                    pbar.set_description(
+                        f'loss={loss.item():.4f} fine={loss_main_f.item():.4f} coarse={loss_main_c.item():.4f} cons={loss_cons.item():.4f} kl={loss_kl.item():.4f}'
+                    )
                 if self.step % self.cfg['train']['save_every'] == 0:
                     save_checkpoint({'model': self.model.state_dict(), 'opt': self.opt.state_dict(), 'step': self.step, 'cfg': self.cfg}, str(self.out / 'ckpts' / f'{self.step}.pt'))
                 if self.step % self.cfg['train']['sample_every'] == 0:
