@@ -7,3 +7,4 @@ pyyaml
 requests
 scipy
 scikit-image
+pyarrow
