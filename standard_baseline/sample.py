@@ -1,9 +1,12 @@
 import argparse
+from pathlib import Path
+import sys
 import torch
 from torchvision.utils import save_image
 
-from scripts._bootstrap import bootstrap_repo_root
-bootstrap_repo_root()
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from standard_baseline.model import UNetSmall
 from standard_baseline.ddpm import make_schedule
 
