@@ -75,24 +75,19 @@ class Trainer:
                 g = self.model.sample_global_latent(mu, logvar)
                 # Build noisy image-space state x_t for local feature extraction.
                 # We cannot reshape coordinate subsets back to full grid, so generate x_t directly in image space.
-                ab_img = cosine_alpha_bar(t)[:, None, None, None]
                 eps_img = torch.randn_like(img)
+                ab_img = cosine_alpha_bar(t)[:, None, None, None]
                 xt_img = torch.sqrt(ab_img) * img + torch.sqrt(1 - ab_img) * eps_img
-                feat_map_f = self.model.encode_local_map(xt_img)
-                feat_map_c = feat_map_f
-                lf_f = self.model.sample_local_features(feat_map_f, coords_f)
-                lf_c = self.model.sample_local_features(feat_map_c, coords_c)
                 with torch.amp.autocast('cuda', enabled=self.use_amp):
-                    pred_f = self.model(xt_f, coords_f, t, g, lf_f)
-                    pred_c = self.model(xt_c, coords_c, t, g, lf_c)
+                    pred_eps_img = self.model.denoise_grid(xt_img, t, g)
+                    pred_f = bilinear_sample(pred_eps_img, coords_f)
+                    pred_c = bilinear_sample(pred_eps_img, coords_c)
 
                     loss_main_f = F.mse_loss(pred_f, eps_f)
                     loss_main_c = F.mse_loss(pred_c, eps_c)
                     # subset consistency: same noise realization restricted to coarse subset
                     eps_f_on_c = eps_f[:, perm[:n_c], :]
-                    xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
-                    lf_c_from_f = self.model.sample_local_features(feat_map_c, coords_c)
-                    pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g, lf_c_from_f)
+                    pred_c_from_f = pred_f[:, perm[:n_c], :]
                     # consistency should be anchored to a target noise, not only prediction-vs-prediction
                     loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
                     loss_kl = self.model.kl_global_prior(mu, logvar)

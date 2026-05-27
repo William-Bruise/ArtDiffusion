@@ -47,6 +47,12 @@ class ContinuousFieldDiffusion(nn.Module):
 
         self.t_embed = nn.Sequential(nn.Linear(1, time_embed_dim), nn.SiLU(), nn.Linear(time_embed_dim, time_embed_dim))
         self.coord_mlp = CoordMLP(coord_dim + global_latent_dim + time_embed_dim + 3 + 64, coord_hidden_dim, num_layers, 3, dropout)
+        self.grid_denoiser = nn.Sequential(
+            nn.Conv2d(64 + 3 + time_embed_dim + global_latent_dim, 256, 3, 1, 1), nn.SiLU(),
+            nn.Conv2d(256, 256, 3, 1, 1), nn.SiLU(),
+            nn.Conv2d(256, 128, 3, 1, 1), nn.SiLU(),
+            nn.Conv2d(128, 3, 3, 1, 1),
+        )
 
     def encode_global_stats(self, x_img: torch.Tensor):
         h = self.global_backbone(x_img).flatten(1)
@@ -77,6 +83,14 @@ class ContinuousFieldDiffusion(nn.Module):
         g = global_context.unsqueeze(1).expand(-1, coords.shape[1], -1)
         inp = torch.cat([noisy_rgb, c, te, g, local_features], dim=-1)
         return self.coord_mlp(inp)
+
+    def denoise_grid(self, xt_img: torch.Tensor, t: torch.Tensor, global_context: torch.Tensor) -> torch.Tensor:
+        b, _, h, w = xt_img.shape
+        lf = self.encode_local_map(xt_img)
+        te = self.t_embed(t[:, None]).view(b, -1, 1, 1).expand(-1, -1, h, w)
+        g = global_context.view(b, -1, 1, 1).expand(-1, -1, h, w)
+        x = torch.cat([xt_img, lf, te, g], dim=1)
+        return self.grid_denoiser(x)
 
 
 def cosine_alpha_bar(t):
