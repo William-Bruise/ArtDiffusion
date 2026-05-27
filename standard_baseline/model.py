@@ -34,13 +34,13 @@ class UNetSmall(nn.Module):
         super().__init__()
         self.t_mlp = nn.Sequential(nn.Linear(t_dim, t_dim), nn.SiLU(), nn.Linear(t_dim, t_dim))
         self.in_conv = nn.Conv2d(3, base, 3, padding=1)
-        self.down1 = ResBlock(base, base, t_dim)
-        self.down2 = ResBlock(base, base * 2, t_dim)
+        self.down1 = ResBlock(base, base, t_dim)          # H
+        self.down2 = ResBlock(base, base * 2, t_dim)      # H/2
         self.pool = nn.AvgPool2d(2)
-        self.mid = ResBlock(base * 2, base * 2, t_dim)
+        self.mid = ResBlock(base * 2, base * 2, t_dim)    # H/4
         self.up = nn.Upsample(scale_factor=2, mode='nearest')
-        self.up1 = ResBlock(base * 2 + base * 2, base, t_dim)
-        self.up2 = ResBlock(base + base, base, t_dim)
+        self.up1 = ResBlock(base * 2 + base * 2, base * 2, t_dim)  # H/2
+        self.up2 = ResBlock(base * 2 + base, base, t_dim)           # H
         self.out = nn.Conv2d(base, 3, 3, padding=1)
         self.t_dim = t_dim
 
@@ -49,8 +49,9 @@ class UNetSmall(nn.Module):
         x0 = self.in_conv(x)
         d1 = self.down1(x0, t_emb)
         d2 = self.down2(self.pool(d1), t_emb)
-        m = self.mid(d2, t_emb)
+        m = self.mid(self.pool(d2), t_emb)
         u = self.up(m)
         u = self.up1(torch.cat([u, d2], dim=1), t_emb)
+        u = self.up(u)
         u = self.up2(torch.cat([u, d1], dim=1), t_emb)
         return self.out(u)
