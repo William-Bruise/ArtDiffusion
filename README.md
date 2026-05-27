@@ -80,10 +80,15 @@ python -m compileall scripts/sample.py samplers/ddim_sampler.py models/continuou
 
 ### 6) 损失曲线记录与对数坐标可视化
 - 训练会自动把损失写到 `outputs/default/logs/train_loss.jsonl`（字段：`step`, `loss`, `mode`）。
+- 训练期间会自动更新并保存对数坐标曲线图：`outputs/default/logs/train_loss_logscale.png`。
 - 用下面命令画对数坐标（log-y）损失曲线：
 ```bash
 python scripts/plot_loss.py --log outputs/default/logs/train_loss.jsonl --out outputs/default/logs/train_loss_logscale.png
 ```
+
+### 7) 混合精度（AMP）
+- 默认已关闭 AMP（`train.use_amp: false`）以优先保证训练稳定性和可复现性。
+- 如果你确认环境稳定并希望提速，再手动改回 `true`。
 - 建议先用 `--steps 100` 采样再看质量，50 步对当前小模型常偏噪。
 - 关注训练日志中的 `fine/coarse/cons` 是否同步下降；若 `cons` 不降，优先减小 `coordinates.consistency_weight` 到 `0.1`。
 

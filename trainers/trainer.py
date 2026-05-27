@@ -1,6 +1,9 @@
 import os
 import json
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn.functional as F
@@ -27,6 +30,9 @@ class Trainer:
         ensure_dir(str(self.out / 'samples'))
         ensure_dir(str(self.out / 'logs'))
         self.loss_log_path = self.out / 'logs' / 'train_loss.jsonl'
+        self.loss_plot_path = self.out / 'logs' / 'train_loss_logscale.png'
+        self.loss_history_steps = []
+        self.loss_history_vals = []
 
         ds_name = cfg['data']['dataset']
         if ds_name == 'mixed':
@@ -106,8 +112,11 @@ class Trainer:
                 pbar.update(1)
                 if self.step % self.cfg['train']['log_every'] == 0:
                     pbar.set_description(f'loss={loss.item():.6f} mode={objective_mode}')
+                    self.loss_history_steps.append(self.step)
+                    self.loss_history_vals.append(max(float(loss.item()), 1e-12))
                     with open(self.loss_log_path, 'a', encoding='utf-8') as f:
                         f.write(json.dumps({'step': self.step, 'loss': float(loss.item()), 'mode': objective_mode}) + '\n')
+                    self._save_loss_plot()
                 if self.step % self.cfg['train']['save_every'] == 0:
                     save_checkpoint({'model': self.model.state_dict(), 'opt': self.opt.state_dict(), 'step': self.step, 'cfg': self.cfg}, str(self.out / 'ckpts' / f'{self.step}.pt'))
                 if self.step % self.cfg['train']['sample_every'] == 0:
@@ -118,3 +127,17 @@ class Trainer:
                     save_image((smp.clamp(-1, 1) + 1) / 2, self.out / 'samples' / f'{self.step}.png')
                 if self.step >= max_steps:
                     break
+
+    def _save_loss_plot(self):
+        if not self.loss_history_steps:
+            return
+        plt.figure(figsize=(8, 4.5))
+        plt.plot(self.loss_history_steps, self.loss_history_vals, linewidth=1.4)
+        plt.yscale('log')
+        plt.xlabel('Step')
+        plt.ylabel('Training Loss (log scale)')
+        plt.title('Diffusion Training Loss Curve')
+        plt.grid(True, which='both', linestyle='--', alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(self.loss_plot_path, dpi=160)
+        plt.close()
