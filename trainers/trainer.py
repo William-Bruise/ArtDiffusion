@@ -73,16 +73,19 @@ class Trainer:
 
                 mu, logvar = self.model.encode_global_stats(img)
                 g = self.model.sample_global_latent(mu, logvar)
+                feat_map = self.model.encode_local_map(img)
+                lf_f = self.model.sample_local_features(feat_map, coords_f)
+                lf_c = self.model.sample_local_features(feat_map, coords_c)
                 with torch.amp.autocast('cuda', enabled=self.use_amp):
-                    pred_f = self.model(xt_f, coords_f, t, g)
-                    pred_c = self.model(xt_c, coords_c, t, g)
+                    pred_f = self.model(xt_f, coords_f, t, g, lf_f)
+                    pred_c = self.model(xt_c, coords_c, t, g, lf_c)
 
                     loss_main_f = F.mse_loss(pred_f, eps_f)
                     loss_main_c = F.mse_loss(pred_c, eps_c)
                     # subset consistency: same noise realization restricted to coarse subset
                     eps_f_on_c = eps_f[:, perm[:n_c], :]
                     xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
-                    pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g)
+                    pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g, lf_c)
                     # consistency should be anchored to a target noise, not only prediction-vs-prediction
                     loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
                     loss_kl = self.model.kl_global_prior(mu, logvar)

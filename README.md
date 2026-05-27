@@ -70,6 +70,7 @@ python -m compileall scripts/sample.py samplers/ddim_sampler.py models/continuou
 
 ### 4) 训练到 2~20 万步仍然很噪怎么办
 - 请使用**最新代码重新训练**（旧 checkpoint 学到的是旧目标函数，视觉上可能长期停在噪声态）。
+- 当前版本已将局部特征图（CNN）注入到坐标去噪器，旧 checkpoint 不兼容新结构，必须从头训练。
 - 建议先用 `--steps 100` 采样再看质量，50 步对当前小模型常偏噪。
 - 关注训练日志中的 `fine/coarse/cons` 是否同步下降；若 `cons` 不降，优先减小 `coordinates.consistency_weight` 到 `0.1`。
 

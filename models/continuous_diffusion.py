@@ -37,11 +37,16 @@ class ContinuousFieldDiffusion(nn.Module):
             nn.Conv2d(128, global_latent_dim, 4, 2, 1), nn.SiLU(),
             nn.AdaptiveAvgPool2d(1),
         )
+        self.local_backbone = nn.Sequential(
+            nn.Conv2d(3, 64, 3, 1, 1), nn.SiLU(),
+            nn.Conv2d(64, 64, 3, 1, 1), nn.SiLU(),
+            nn.Conv2d(64, 64, 3, 1, 1), nn.SiLU(),
+        )
         self.global_mu = nn.Linear(global_latent_dim, global_latent_dim)
         self.global_logvar = nn.Linear(global_latent_dim, global_latent_dim)
 
         self.t_embed = nn.Sequential(nn.Linear(1, time_embed_dim), nn.SiLU(), nn.Linear(time_embed_dim, time_embed_dim))
-        self.coord_mlp = CoordMLP(coord_dim + global_latent_dim + time_embed_dim + 3, coord_hidden_dim, num_layers, 3, dropout)
+        self.coord_mlp = CoordMLP(coord_dim + global_latent_dim + time_embed_dim + 3 + 64, coord_hidden_dim, num_layers, 3, dropout)
 
     def encode_global_stats(self, x_img: torch.Tensor):
         h = self.global_backbone(x_img).flatten(1)
@@ -56,11 +61,21 @@ class ContinuousFieldDiffusion(nn.Module):
         # KL(q(z|x)||N(0,I))
         return 0.5 * torch.mean(torch.sum(torch.exp(logvar) + mu * mu - 1.0 - logvar, dim=1))
 
-    def forward(self, noisy_rgb: torch.Tensor, coords: torch.Tensor, t: torch.Tensor, global_context: torch.Tensor) -> torch.Tensor:
+    def encode_local_map(self, x_img: torch.Tensor):
+        return self.local_backbone(x_img)
+
+    def sample_local_features(self, feat_map: torch.Tensor, coords: torch.Tensor):
+        b = feat_map.shape[0]
+        grid = coords * 2 - 1
+        grid = grid.view(b, 1, -1, 2)
+        sampled = torch.nn.functional.grid_sample(feat_map, grid, mode='bilinear', align_corners=True)
+        return sampled.squeeze(2).permute(0, 2, 1)
+
+    def forward(self, noisy_rgb: torch.Tensor, coords: torch.Tensor, t: torch.Tensor, global_context: torch.Tensor, local_features: torch.Tensor) -> torch.Tensor:
         c = fourier_encode(coords, self.coord_fourier_dim)
         te = self.t_embed(t[:, None]).unsqueeze(1).expand(-1, coords.shape[1], -1)
         g = global_context.unsqueeze(1).expand(-1, coords.shape[1], -1)
-        inp = torch.cat([noisy_rgb, c, te, g], dim=-1)
+        inp = torch.cat([noisy_rgb, c, te, g, local_features], dim=-1)
         return self.coord_mlp(inp)
 
 
