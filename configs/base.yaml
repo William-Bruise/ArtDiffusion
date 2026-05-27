@@ -22,12 +22,11 @@ model:
 train:
   batch_size: 8
   max_steps: 200000
-  objective_mode: full_eps_mse  # full_eps_mse | hybrid
+  objective_mode: full_eps_mse
   use_global_encoder: false
   lr: 2e-4
   weight_decay: 1e-4
   grad_clip: 1.0
-  kl_weight: 1e-4
   full_weight: 1.0
   use_amp: true
   save_every: 2000

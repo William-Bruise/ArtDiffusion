@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 import torch
@@ -24,6 +25,8 @@ class Trainer:
         self.out = Path(cfg['experiment']['out_dir'])
         ensure_dir(str(self.out / 'ckpts'))
         ensure_dir(str(self.out / 'samples'))
+        ensure_dir(str(self.out / 'logs'))
+        self.loss_log_path = self.out / 'logs' / 'train_loss.jsonl'
 
         ds_name = cfg['data']['dataset']
         if ds_name == 'mixed':
@@ -87,27 +90,10 @@ class Trainer:
                     pred_c = bilinear_sample(pred_eps_img, coords_c)
 
                     loss_full = F.mse_loss(pred_eps_img, eps_img)
-                    loss_main_f = F.mse_loss(pred_f, eps_f)
-                    loss_main_c = F.mse_loss(pred_c, eps_c)
-                    # subset consistency: same noise realization restricted to coarse subset
-                    eps_f_on_c = eps_f[:, perm[:n_c], :]
-                    pred_c_from_f = pred_f[:, perm[:n_c], :]
-                    # consistency should be anchored to a target noise, not only prediction-vs-prediction
-                    loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
-                    loss_kl = self.model.kl_global_prior(mu, logvar) if use_global_encoder else torch.zeros((), device=self.device)
                     objective_mode = self.cfg['train'].get('objective_mode', 'full_eps_mse')
-                    if objective_mode == 'full_eps_mse':
-                        loss = self.cfg['train'].get('full_weight', 1.0) * loss_full
-                    elif objective_mode == 'hybrid':
-                        loss = (
-                            self.cfg['train'].get('full_weight', 1.0) * loss_full
-                            + loss_main_f
-                            + c.get('coarse_weight', 0.5) * loss_main_c
-                            + c['consistency_weight'] * loss_cons
-                            + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
-                        )
-                    else:
-                        raise ValueError(f"Unknown train.objective_mode={objective_mode}")
+                    if objective_mode != 'full_eps_mse':
+                        raise ValueError("Only train.objective_mode=full_eps_mse is supported in the standardized training path")
+                    loss = self.cfg['train'].get('full_weight', 1.0) * loss_full
 
                 self.opt.zero_grad()
                 self.scaler.scale(loss).backward()
@@ -119,9 +105,9 @@ class Trainer:
                 self.step += 1
                 pbar.update(1)
                 if self.step % self.cfg['train']['log_every'] == 0:
-                    pbar.set_description(
-                        f'loss={loss.item():.4f} mode={objective_mode} full={loss_full.item():.4f} fine={loss_main_f.item():.4f} coarse={loss_main_c.item():.4f} cons={loss_cons.item():.4f} kl={loss_kl.item():.4f}'
-                    )
+                    pbar.set_description(f'loss={loss.item():.6f} mode={objective_mode}')
+                    with open(self.loss_log_path, 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({'step': self.step, 'loss': float(loss.item()), 'mode': objective_mode}) + '\n')
                 if self.step % self.cfg['train']['save_every'] == 0:
                     save_checkpoint({'model': self.model.state_dict(), 'opt': self.opt.state_dict(), 'step': self.step, 'cfg': self.cfg}, str(self.out / 'ckpts' / f'{self.step}.pt'))
                 if self.step % self.cfg['train']['sample_every'] == 0:
