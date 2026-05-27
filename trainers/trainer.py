@@ -73,9 +73,14 @@ class Trainer:
 
                 mu, logvar = self.model.encode_global_stats(img)
                 g = self.model.sample_global_latent(mu, logvar)
-                feat_map = self.model.encode_local_map(img)
-                lf_f = self.model.sample_local_features(feat_map, coords_f)
-                lf_c = self.model.sample_local_features(feat_map, coords_c)
+                # Keep train/inference consistent: local features must be extracted from current noisy state x_t,
+                # not from clean x0 image.
+                xt_f_img = xt_f.reshape(b, h, w, 3).permute(0, 3, 1, 2)
+                xt_c_img = xt_c.reshape(b, h, w, 3).permute(0, 3, 1, 2)
+                feat_map_f = self.model.encode_local_map(xt_f_img)
+                feat_map_c = self.model.encode_local_map(xt_c_img)
+                lf_f = self.model.sample_local_features(feat_map_f, coords_f)
+                lf_c = self.model.sample_local_features(feat_map_c, coords_c)
                 with torch.amp.autocast('cuda', enabled=self.use_amp):
                     pred_f = self.model(xt_f, coords_f, t, g, lf_f)
                     pred_c = self.model(xt_c, coords_c, t, g, lf_c)
@@ -85,7 +90,10 @@ class Trainer:
                     # subset consistency: same noise realization restricted to coarse subset
                     eps_f_on_c = eps_f[:, perm[:n_c], :]
                     xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
-                    pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g, lf_c)
+                    xt_c_from_f_img = xt_c_from_f.reshape(b, h, w, 3).permute(0, 3, 1, 2)
+                    feat_map_c_from_f = self.model.encode_local_map(xt_c_from_f_img)
+                    lf_c_from_f = self.model.sample_local_features(feat_map_c_from_f, coords_c)
+                    pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g, lf_c_from_f)
                     # consistency should be anchored to a target noise, not only prediction-vs-prediction
                     loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
                     loss_kl = self.model.kl_global_prior(mu, logvar)
