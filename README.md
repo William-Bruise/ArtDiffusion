@@ -116,3 +116,15 @@ python scripts/prepare_data.py --dataset ffhq --root data
 
 ## Math and Bayesian details
 See `docs/method.md`.
+
+## Standard baseline (先验证标准扩散是否正常)
+如果你想先验证“最标准无条件扩散”能否在 FFHQ 上稳定学出人脸，可直接使用：
+
+```bash
+python standard_baseline/train.py --root data --dataset ffhq --image_size 128 --batch_size 16 --steps 200000 --out outputs/standard_baseline
+python standard_baseline/sample.py --ckpt outputs/standard_baseline/ckpts/200000.pt --h 128 --w 128 --n 4 --out outputs/standard_baseline/samples_200k.png
+```
+
+说明：
+- 该 baseline 使用标准 DDPM epsilon 目标和离散反向采样链，作为质量 sanity-check。
+- 等 baseline 生成质量稳定后，再回到连续坐标扩展版本做增量对比。
