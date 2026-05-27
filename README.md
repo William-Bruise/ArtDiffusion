@@ -73,6 +73,8 @@ python -m compileall scripts/sample.py samplers/ddim_sampler.py models/continuou
 - 当前版本已将局部特征图（CNN）注入到坐标去噪器，旧 checkpoint 不兼容新结构，必须从头训练。
 - 已修复一个关键一致性问题：训练时局部特征现在从 `x_t`（噪声状态）提取，以匹配采样阶段输入分布。若你是在修复前训练的，请重新训练。
 - 当前版本进一步切换为“网格去噪主干 + 坐标子集监督”：先在图像网格上预测噪声，再在坐标子集上取样计算损失。该结构对高频细节更稳定，但需要全新训练。
+- 训练目标已加入 full-grid 噪声监督（`train.full_weight`），避免仅靠子集损失导致“loss 很低但视觉像油画块”。
+- 采样链已移除每步硬 `clamp`（只在最后一步做 `tanh` 限幅），降低长步数（如 300）塌成全黑的风险。
 - 建议先用 `--steps 100` 采样再看质量，50 步对当前小模型常偏噪。
 - 关注训练日志中的 `fine/coarse/cons` 是否同步下降；若 `cons` 不降，优先减小 `coordinates.consistency_weight` 到 `0.1`。
 
