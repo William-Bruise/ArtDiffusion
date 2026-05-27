@@ -8,7 +8,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 from datasets.image_field_dataset import ImageFieldDataset
-from models.continuous_diffusion import ContinuousFieldDiffusion, q_sample
+from models.continuous_diffusion import ContinuousFieldDiffusion, cosine_alpha_bar, q_sample
 from samplers.ddim_sampler import sample_grid
 from trainers.coordinate_sampler import bilinear_sample, sample_coords
 from utils import ensure_dir, load_checkpoint, save_checkpoint, set_seed
@@ -73,12 +73,13 @@ class Trainer:
 
                 mu, logvar = self.model.encode_global_stats(img)
                 g = self.model.sample_global_latent(mu, logvar)
-                # Keep train/inference consistent: local features must be extracted from current noisy state x_t,
-                # not from clean x0 image.
-                xt_f_img = xt_f.reshape(b, h, w, 3).permute(0, 3, 1, 2)
-                xt_c_img = xt_c.reshape(b, h, w, 3).permute(0, 3, 1, 2)
-                feat_map_f = self.model.encode_local_map(xt_f_img)
-                feat_map_c = self.model.encode_local_map(xt_c_img)
+                # Build noisy image-space state x_t for local feature extraction.
+                # We cannot reshape coordinate subsets back to full grid, so generate x_t directly in image space.
+                ab_img = cosine_alpha_bar(t)[:, None, None, None]
+                eps_img = torch.randn_like(img)
+                xt_img = torch.sqrt(ab_img) * img + torch.sqrt(1 - ab_img) * eps_img
+                feat_map_f = self.model.encode_local_map(xt_img)
+                feat_map_c = feat_map_f
                 lf_f = self.model.sample_local_features(feat_map_f, coords_f)
                 lf_c = self.model.sample_local_features(feat_map_c, coords_c)
                 with torch.amp.autocast('cuda', enabled=self.use_amp):
@@ -90,9 +91,7 @@ class Trainer:
                     # subset consistency: same noise realization restricted to coarse subset
                     eps_f_on_c = eps_f[:, perm[:n_c], :]
                     xt_c_from_f, _, _ = q_sample(x0_c, t, eps_f_on_c)
-                    xt_c_from_f_img = xt_c_from_f.reshape(b, h, w, 3).permute(0, 3, 1, 2)
-                    feat_map_c_from_f = self.model.encode_local_map(xt_c_from_f_img)
-                    lf_c_from_f = self.model.sample_local_features(feat_map_c_from_f, coords_c)
+                    lf_c_from_f = self.model.sample_local_features(feat_map_c, coords_c)
                     pred_c_from_f = self.model(xt_c_from_f, coords_c, t, g, lf_c_from_f)
                     # consistency should be anchored to a target noise, not only prediction-vs-prediction
                     loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
