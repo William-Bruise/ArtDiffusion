@@ -8,7 +8,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 from datasets.image_field_dataset import ImageFieldDataset
-from models.continuous_diffusion import ContinuousFieldDiffusion, cosine_alpha_bar, q_sample
+from models.continuous_diffusion import ContinuousFieldDiffusion, cosine_alpha_bar
 from samplers.ddim_sampler import sample_grid
 from trainers.coordinate_sampler import bilinear_sample, sample_coords
 from utils import ensure_dir, load_checkpoint, save_checkpoint, set_seed
@@ -63,21 +63,19 @@ class Trainer:
                 n_c = max(16, int(c['coarse_ratio'] * n_f))
                 coords_c = coords_f[:, perm[:n_c], :]
 
-                x0_f = bilinear_sample(img, coords_f)
-                x0_c = bilinear_sample(img, coords_c)
                 t = torch.rand(b, device=self.device)
-                eps_f = torch.randn_like(x0_f)
-                xt_f, _, _ = q_sample(x0_f, t, eps_f)
-                eps_c = torch.randn_like(x0_c)
-                xt_c, _, _ = q_sample(x0_c, t, eps_c)
 
                 mu, logvar = self.model.encode_global_stats(img)
                 g = self.model.sample_global_latent(mu, logvar)
-                # Build noisy image-space state x_t for local feature extraction.
-                # We cannot reshape coordinate subsets back to full grid, so generate x_t directly in image space.
+                # Build a single noisy image-space state x_t and derive all subset targets from it.
+                # This guarantees target eps at coordinates matches the conditioning xt distribution.
                 eps_img = torch.randn_like(img)
                 ab_img = cosine_alpha_bar(t)[:, None, None, None]
                 xt_img = torch.sqrt(ab_img) * img + torch.sqrt(1 - ab_img) * eps_img
+                xt_f = bilinear_sample(xt_img, coords_f)
+                xt_c = bilinear_sample(xt_img, coords_c)
+                eps_f = bilinear_sample(eps_img, coords_f)
+                eps_c = bilinear_sample(eps_img, coords_c)
                 with torch.amp.autocast('cuda', enabled=self.use_amp):
                     pred_eps_img = self.model.denoise_grid(xt_img, t, g)
                     pred_f = bilinear_sample(pred_eps_img, coords_f)
