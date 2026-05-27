@@ -65,8 +65,13 @@ class Trainer:
 
                 t = torch.rand(b, device=self.device)
 
-                mu, logvar = self.model.encode_global_stats(img)
-                g = self.model.sample_global_latent(mu, logvar)
+                use_global_encoder = bool(self.cfg['train'].get('use_global_encoder', False))
+                if use_global_encoder:
+                    mu, logvar = self.model.encode_global_stats(img)
+                    g = self.model.sample_global_latent(mu, logvar)
+                else:
+                    mu = logvar = None
+                    g = torch.randn(b, self.model.global_latent_dim, device=self.device)
                 # Build a single noisy image-space state x_t and derive all subset targets from it.
                 # This guarantees target eps at coordinates matches the conditioning xt distribution.
                 eps_img = torch.randn_like(img)
@@ -89,7 +94,7 @@ class Trainer:
                     pred_c_from_f = pred_f[:, perm[:n_c], :]
                     # consistency should be anchored to a target noise, not only prediction-vs-prediction
                     loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
-                    loss_kl = self.model.kl_global_prior(mu, logvar)
+                    loss_kl = self.model.kl_global_prior(mu, logvar) if use_global_encoder else torch.zeros((), device=self.device)
                     objective_mode = self.cfg['train'].get('objective_mode', 'full_eps_mse')
                     if objective_mode == 'full_eps_mse':
                         loss = self.cfg['train'].get('full_weight', 1.0) * loss_full

@@ -76,6 +76,7 @@ python -m compileall scripts/sample.py samplers/ddim_sampler.py models/continuou
 - 训练目标已加入 full-grid 噪声监督（`train.full_weight`），避免仅靠子集损失导致“loss 很低但视觉像油画块”。
 - 采样链已移除每步硬 `clamp`（只在最后一步做 `tanh` 限幅），降低长步数（如 300）塌成全黑的风险。
 - 默认训练目标已切换为 `train.objective_mode: full_eps_mse`（标准 full epsilon MSE）；如需研究型组合损失可改为 `hybrid`。
+- 默认关闭全局编码器路径（`train.use_global_encoder: false`），训练与采样都使用同分布随机全局向量，避免 `q(z|x)` 训练/无条件采样不一致导致的伪彩色块与崩塌。
 - 建议先用 `--steps 100` 采样再看质量，50 步对当前小模型常偏噪。
 - 关注训练日志中的 `fine/coarse/cons` 是否同步下降；若 `cons` 不降，优先减小 `coordinates.consistency_weight` 到 `0.1`。
 
