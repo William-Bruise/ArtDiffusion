@@ -22,6 +22,7 @@ model:
 train:
   batch_size: 8
   max_steps: 200000
+  objective_mode: full_eps_mse  # full_eps_mse | hybrid
   lr: 2e-4
   weight_decay: 1e-4
   grad_clip: 1.0

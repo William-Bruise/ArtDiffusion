@@ -90,13 +90,19 @@ class Trainer:
                     # consistency should be anchored to a target noise, not only prediction-vs-prediction
                     loss_cons = F.mse_loss(pred_c_from_f, eps_f_on_c)
                     loss_kl = self.model.kl_global_prior(mu, logvar)
-                    loss = (
-                        self.cfg['train'].get('full_weight', 1.0) * loss_full
-                        + loss_main_f
-                        + c.get('coarse_weight', 0.5) * loss_main_c
-                        + c['consistency_weight'] * loss_cons
-                        + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
-                    )
+                    objective_mode = self.cfg['train'].get('objective_mode', 'full_eps_mse')
+                    if objective_mode == 'full_eps_mse':
+                        loss = self.cfg['train'].get('full_weight', 1.0) * loss_full
+                    elif objective_mode == 'hybrid':
+                        loss = (
+                            self.cfg['train'].get('full_weight', 1.0) * loss_full
+                            + loss_main_f
+                            + c.get('coarse_weight', 0.5) * loss_main_c
+                            + c['consistency_weight'] * loss_cons
+                            + self.cfg['train'].get('kl_weight', 1e-4) * loss_kl
+                        )
+                    else:
+                        raise ValueError(f"Unknown train.objective_mode={objective_mode}")
 
                 self.opt.zero_grad()
                 self.scaler.scale(loss).backward()
@@ -109,7 +115,7 @@ class Trainer:
                 pbar.update(1)
                 if self.step % self.cfg['train']['log_every'] == 0:
                     pbar.set_description(
-                        f'loss={loss.item():.4f} full={loss_full.item():.4f} fine={loss_main_f.item():.4f} coarse={loss_main_c.item():.4f} cons={loss_cons.item():.4f} kl={loss_kl.item():.4f}'
+                        f'loss={loss.item():.4f} mode={objective_mode} full={loss_full.item():.4f} fine={loss_main_f.item():.4f} coarse={loss_main_c.item():.4f} cons={loss_cons.item():.4f} kl={loss_kl.item():.4f}'
                     )
                 if self.step % self.cfg['train']['save_every'] == 0:
                     save_checkpoint({'model': self.model.state_dict(), 'opt': self.opt.state_dict(), 'step': self.step, 'cfg': self.cfg}, str(self.out / 'ckpts' / f'{self.step}.pt'))
